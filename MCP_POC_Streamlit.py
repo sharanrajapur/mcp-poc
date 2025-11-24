@@ -68,7 +68,7 @@ def initialize_session_state():
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     if 'active_category' not in st.session_state:
-        st.session_state.active_category = "Leads"
+        st.session_state.active_category = "Brandville"
     if 'last_full_data' not in st.session_state:
         st.session_state.last_full_data = None
 
@@ -165,7 +165,7 @@ def display_main_content():
         st.write("Select a category to see example prompts:")
         
         with st.container(border=True):
-            st.markdown("##### 🚀 Leads & Opportunities")
+            st.markdown("##### 🚀 Competitive Information for DX Business")
             st.write("Discover opportunities and competitive insights.")
             st.button("Show DX Competitive Examples", on_click=set_active_category, args=("DXCompetitiveInformation",), key="b_leads", use_container_width=True)
         
@@ -239,3 +239,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
