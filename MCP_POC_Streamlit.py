@@ -7,7 +7,7 @@ from datetime import timedelta
 # --- Configuration ---
 # It's recommended to use st.secrets for storing sensitive information like API tokens
 API_URL = "https://elastic.snaplogic.com/api/1/rest/slsched/feed/SIE_Health_Dev/SHS_IT_DCE_PM/MCP_POC/SHSAgentDriver_TriggeredTask"
-API_TOKEN = "T4eplJ7hZxOcBlopQP1TON1fT959wyqO" # Replace with your actual token or use st.secrets
+API_TOKEN = "T4eplJ7hZxOcBlopQP1TON1fT959wyqO"  # Replace with your actual token or use st.secrets
 
 # --- Example Prompts Data Structure ---
 EXAMPLE_PROMPTS = {
@@ -42,8 +42,13 @@ def get_assistant_response(session_id, messages_tuple):
     # Convert the tuple of tuples back to a list of dictionaries
     messages = [dict(m) for m in messages_tuple]
     # Construct the payload as expected by the API
-    payload = [{"session_id": session_id, "messages": messages, "last_full_data": st.session_state.get('last_full_data', None)}]
-    
+    payload = [
+        {
+            "session_id": session_id,
+            "messages": messages
+        }
+    ]
+
     try:
         # Make the POST request to the API
         response = requests.post(API_URL, headers=headers, data=json.dumps(payload), timeout=180)
@@ -66,47 +71,125 @@ def initialize_session_state():
         st.session_state.active_category = "Leads"
     if 'last_full_data' not in st.session_state:
         st.session_state.last_full_data = None
-    if 'raw_response_for_debug' not in st.session_state:
-        st.session_state.raw_response_for_debug = {}
+
+def add_message(role, content):
+    """
+    Adds a message to the session state chat history.
+    role: 'USER' or 'ASSISTANT'
+    """
+    st.session_state.messages.append({
+        "sl_role": role,
+        "content": content
+    })
+
+def display_sidebar():
+    """Displays the sidebar with configuration and session info."""
+    with st.sidebar:
+        st.title("🔧 Configuration")
+        st.markdown("Manage session and view the raw API data here.")
+        
+        st.markdown("**Session ID**")
+        st.code(st.session_state.session_id, language="text")
+        
+        if st.button("♻️ New Session"):
+            st.session_state.session_id = str(uuid.uuid4())
+            st.session_state.messages = []
+            st.session_state.last_full_data = None
+            st.experimental_rerun()
+        
+        st.markdown("---")
+        st.markdown("### Raw API Response")
+        if st.session_state.last_full_data is not None:
+            # Show the last full raw JSON response
+            st.json(st.session_state.last_full_data)
+        else:
+            st.write("No API response yet. Start by asking a question.")
 
 def set_active_category(category):
-    """Callback to set the active example category."""
+    """Sets the active example category."""
     st.session_state.active_category = category
 
 def handle_prompt_submission(prompt_text):
-    """Callback to add a user message to the chat history."""
-    st.session_state.messages.append({"sl_role": "USER", "content": prompt_text})
+    """
+    Handles sending of a prompt (from chat input or example button),
+    calling the backend API, and updating the UI.
+    """
+    if not prompt_text.strip():
+        return
+    
+    # Add user message to the chat history
+    add_message("USER", prompt_text)
+    
+    # Prepare messages for the API call
+    messages_tuple = tuple(
+        {"sl_role": msg["sl_role"], "content": msg["content"]}
+        for msg in st.session_state.messages
+    )
+    
+    # Call the assistant API
+    data = get_assistant_response(st.session_state.session_id, messages_tuple)
+    
+    # Store the full response (for debugging/raw view in sidebar)
+    st.session_state.last_full_data = data
+    
+    # Extract a "nice" message to show in the main chat
+    # The API may return a dict or a list; handle both cases
+    assistant_reply = None
+    
+    if isinstance(data, dict):
+        # If the API returns a single dict, try to parse it accordingly
+        assistant_reply = data.get("answer") or data.get("message") or str(data)
+    elif isinstance(data, list) and len(data) > 0:
+        # If the API returns a list, take the first element and parse
+        first_item = data[0]
+        if isinstance(first_item, dict):
+            assistant_reply = first_item.get("answer") or first_item.get("message") or str(first_item)
+        else:
+            assistant_reply = str(first_item)
+    else:
+        assistant_reply = "I received an unexpected response format from the backend."
+    
+    # Add assistant message to the chat history
+    add_message("ASSISTANT", assistant_reply)
 
 def display_main_content():
-    """Renders the main UI components in the correct order."""
-    st.title("🤖 SAM AI Knowledge Assistant")
-    st.caption("Your intelligent partner for accessing Siemens Healthineers sales and marketing information.")
-    st.markdown("---")
+    """Displays the main layout of the application."""
+    st.title("🤖 Knowledge Assistant with MCP")
+    st.write("Ask questions and explore example prompts for different use case categories.")
     
-    st.subheader("What Can I Do For You?")
+    # Layout: top area with category selections
     col1, col2 = st.columns(2)
+    
     with col1:
+        st.subheader("Use Case Categories")
+        st.write("Select a category to see example prompts:")
+        
         with st.container(border=True):
-            st.markdown("##### 📊 Analyze Sales & Marketing Leads")
-            st.write("Query active leads or perform historical analysis on all past leads.")
-            st.button("Show Lead Examples", on_click=set_active_category, args=("Leads",), key="b_leads", use_container_width=True)
+            st.markdown("##### 🚀 Leads & Opportunities")
+            st.write("Discover opportunities and competitive insights.")
+            st.button("Show DX Competitive Examples", on_click=set_active_category, args=("DXCompetitiveInformation",), key="b_leads", use_container_width=True)
+        
+        with st.container(border=True):
+            st.markdown("##### 🎨 Brand & Communication")
+            st.write("Ask about brand guidelines, assets, and visual identity.")
+            st.button("Show Brand Examples", on_click=set_active_category, args=("Brandville",), key="b_brand", use_container_width=True)
+    
     with col2:
-        with st.container(border=True):
-            st.markdown("##### 📈 Explore Customer & Product Data")
-            st.write("View installed products, find opportunities, and check quote statuses.")
-            st.button("Show Customer Examples", on_click=set_active_category, args=("Customer",), key="b_customer", use_container_width=True)
-            
-    col3, col4 = st.columns(2)
-    with col3:
-        with st.container(border=True):
-            st.markdown("##### 🛠️ Access Technical & Service Information")
-            st.write("Find detailed equipment data like hardware/software versions and service status.")
-            st.button("Show Technical Examples", on_click=set_active_category, args=("Technical",), key="b_tech", use_container_width=True)
-    with col4:
-        with st.container(border=True):
-            st.markdown("##### 📚 Find Documents & Product Literature")
-            st.write("List all available documents or ask general questions about a product.")
-            st.button("Show Document Examples", on_click=set_active_category, args=("Documents",), key="b_docs", use_container_width=True)
+        st.subheader("About This Assistant")
+        st.write("""
+        This assistant is powered by:
+        - **SnapLogic** as the orchestration and MCP backend
+        - A **knowledge graph / RAG backend** for retrieving relevant documents and data
+        - A chat-style interface implemented in **Streamlit**
+        """)
+        
+        st.markdown("#### How it works")
+        st.markdown("""
+        1. You select an example or type your own question.
+        2. The app sends your query and conversation history to a SnapLogic task.
+        3. The backend orchestrates retrieval and reasoning across multiple systems.
+        4. You see the response in this chat and can inspect the full JSON in the sidebar.
+        """)
     
     st.markdown("---")
     st.subheader(f"Example Prompts for: {st.session_state.active_category}")
@@ -126,80 +209,24 @@ def display_chat_interface():
             st.markdown(msg["content"])
             
     # Process new user message
-    if st.session_state.messages and st.session_state.messages[-1]["sl_role"] == "USER":
-        with st.spinner("SAM is thinking..."):
-            messages_tuple = tuple(map(lambda m: tuple(sorted(m.items())), st.session_state.messages))
-            raw_response_obj = get_assistant_response(st.session_state.session_id, messages_tuple)
-            
-            st.session_state.raw_response_for_debug = raw_response_obj
+    user_input = st.chat_input("Type your question here...")
+    if user_input:
+        handle_prompt_submission(user_input)
+        st.experimental_rerun()
 
-            display_text = "An error occurred."
-            full_data = None
-            
-            try:
-                # --- THIS IS THE UPDATED LOGIC BLOCK ---
-                # It now handles three cases:
-                # 1. API returns a list containing an object: [{"response": ...}]
-                # 2. API returns a single object: {"response": ...}
-                # 3. API returns an error object: {"error": ...}
-
-                response_container = None
-                if isinstance(raw_response_obj, list) and raw_response_obj:
-                    # Case 1: API returned a list, take the first element.
-                    response_container = raw_response_obj[0]
-                elif isinstance(raw_response_obj, dict):
-                    # Case 2 & 3: API returned a single object.
-                    response_container = raw_response_obj
-
-                if response_container and 'response' in response_container:
-                    agent_response_content = response_container['response']
-                    
-                    # Check the TYPE of the agent's actual response
-                    if isinstance(agent_response_content, dict):
-                        # It's the OLD format (a dictionary with keys)
-                        display_text = agent_response_content.get("display_text", "Error: Agent response is missing 'display_text'.")
-                        full_data = agent_response_content.get("full_data", None)
-                    elif isinstance(agent_response_content, str):
-                        # It's the NEW format (a simple text string)
-                        display_text = agent_response_content
-                        full_data = None
-                    else:
-                        display_text = f"Error: Received an unexpected response format from the agent: {type(agent_response_content)}"
-                
-                elif response_container and 'error' in response_container:
-                    display_text = response_container['error']
-                
-                else:
-                    display_text = "Error: Unexpected API response structure."
-                # --- END OF UPDATED LOGIC BLOCK ---
-
-            except Exception as e:
-                display_text = f"An unexpected error occurred while processing the response: {e}"
-
-            st.session_state.last_full_data = full_data
-            st.session_state.messages.append({"sl_role": "ASSISTANT", "content": display_text})
-            st.rerun()
-
-def display_sidebar():
-    """Manages the sidebar content."""
-    with st.sidebar:
-        st.header("Session Control")
-        st.write(f"**Session ID:**")
-        st.code(st.session_state.session_id, language=None)
-        if st.button("Start New Conversation", use_container_width=True):
-            st.cache_data.clear()
-            keys_to_clear = list(st.session_state.keys())
-            for key in keys_to_clear:
-                del st.session_state[key]
-            st.rerun()
-        
-        st.markdown("---")
-        st.subheader("Raw API Response")
-        data_to_display = st.session_state.get('raw_response_for_debug')
-        if data_to_display:
-            st.json(data_to_display)
-        else:
-            st.json({"info": "No API call made yet."})
+# --- Debug / Dev Panel (Optional) ---
+def display_debug_info():
+    """Displays debug information about the current session."""
+    with st.expander("🔍 Debug Info", expanded=False):
+        st.markdown("### Session State")
+        st.json({
+            "session_id": st.session_state.session_id,
+            "messages": st.session_state.messages,
+            "active_category": st.session_state.active_category,
+            "last_full_data": st.session_state.last_full_data
+        })
+        st.markdown("### Notes")
+        st.write("Use this section to debug the conversation flow and payloads sent to the agent.")
 
 # --- Main App Execution ---
 def main():
@@ -207,12 +234,8 @@ def main():
     initialize_session_state()
     display_sidebar()
     display_main_content()
-    
-    if prompt := st.chat_input("Or ask your own question here..."):
-        handle_prompt_submission(prompt)
-        st.rerun()
-
     display_chat_interface()
+    display_debug_info()
 
 if __name__ == "__main__":
     main()
